@@ -6,6 +6,8 @@ import (
 	"math/bits"
 	"os"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
 type square struct {
@@ -27,10 +29,11 @@ func isValid[T Block](b T) bool {
 }
 
 type Game struct {
-	_data   [81]square
-	rows    [9][9]*square
-	columns [9][9]*square
-	blocks  [9][9]*square
+	_data    [81]square
+	rows     [9][9]*square
+	columns  [9][9]*square
+	blocks   [9][9]*square
+	WsHandle *WsHandle
 }
 
 func NewGame() *Game {
@@ -248,7 +251,15 @@ func (game *Game) deepCopy() *Game {
 	return newGame
 }
 
-func (game *Game) Solve() error {
+func (game *Game) sendToWs() error {
+	if game.WsHandle == nil {
+		return nil
+	}
+	return game.WsHandle.SendToWs(game)
+
+}
+
+func (game *Game) Solve(conn *websocket.Conn) error {
 	for !game.IsFinished() {
 		game.evaluateOptions()
 		changed, err := game.evaluateNumbers()
@@ -273,10 +284,10 @@ func (game *Game) Solve() error {
 				test := 1 << i
 				if test&game._data[idx].options != 0 {
 					wg.Add(1)
-
+					//TODO: step 2 -> pass websocket here as well
 					go func(g *Game, c chan<- int) {
 						g._data[idx].num = i
-						err := g.Solve()
+						err := g.Solve(nil)
 						if err == nil {
 							c <- i
 						} else {
@@ -299,8 +310,12 @@ func (game *Game) Solve() error {
 				return errors.New("No solution found")
 			}
 			game._data[idx].num = val
+			game.sendToWs()
+		} else {
+			game.sendToWs()
 		}
 	}
+	game.sendToWs()
 	return nil
 
 }
